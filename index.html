@@ -3975,8 +3975,8 @@
 
     for (var i = 0; i < MEM.chunks.length; i++) {
       if (
-        xmin - MEM.cwid < MEM.chunks[i].x &&
-        MEM.chunks[i].x < xmax + MEM.cwid
+        xmin - MEM.cwid * 3 < MEM.chunks[i].x &&
+        MEM.chunks[i].x < xmax + MEM.cwid * 3
       ) {
         MEM.canv += MEM.chunks[i].canv;
       }
@@ -4017,7 +4017,7 @@
   function update() {
     //console.log("update!")
 
-    self.chunkloader(MEM.cursx, MEM.cursx + MEM.windx);
+    self.chunkloader(MEM.cursx, MEM.cursx + MEM.windx + MEM.cwid * 3);
     self.chunkrender(MEM.cursx, MEM.cursx + MEM.windx);
 
     document.getElementById("BG").innerHTML =
@@ -4037,6 +4037,19 @@
       "</g></svg>";
 
     //setTimeout(update,1000);
+  }
+
+  function cleanupChunks() {
+    var threshold = MEM.cursx - MEM.windx - MEM.cwid * 2;
+    MEM.chunks = MEM.chunks.filter(function(c) {
+      return c.x >= threshold;
+    });
+    var pThreshold = Math.floor(threshold / 5);
+    for (var k in MEM.planmtx) {
+      if (parseInt(k) < pThreshold) {
+        delete MEM.planmtx[k];
+      }
+    }
   }
 </script>
 
@@ -4065,12 +4078,40 @@
     }
   }
   function autoxcroll(v) {
-    if (document.getElementById("AUTO_SCROLL").checked) {
-      xcroll(v);
-      setTimeout(function() {
-        autoxcroll(v);
-      }, 2000);
+    // Legacy - smooth scroll is always active
+  }
+
+  var SCROLL_PX_PER_SEC = 30;
+  var lastAnimTime = 0;
+  var lastFullUpdateX = 0;
+  var FULL_UPDATE_INTERVAL = 512;
+
+  function smoothScroll(timestamp) {
+    if (!lastAnimTime) {
+      lastAnimTime = timestamp;
+      lastFullUpdateX = MEM.cursx;
+      requestAnimationFrame(smoothScroll);
+      return;
     }
+
+    var delta = (timestamp - lastAnimTime) / 1000;
+    lastAnimTime = timestamp;
+    if (delta > 0.1) delta = 0.016;
+
+    MEM.cursx += SCROLL_PX_PER_SEC * delta;
+
+    if (
+      MEM.cursx - lastFullUpdateX > FULL_UPDATE_INTERVAL ||
+      MEM.cursx + MEM.windx > MEM.xmax - MEM.cwid
+    ) {
+      cleanupChunks();
+      update();
+      lastFullUpdateX = MEM.cursx;
+    } else {
+      viewupdate();
+    }
+
+    requestAnimationFrame(smoothScroll);
   }
   function rstyle(id, b) {
     var a = b ? 0.1 : 0.0;
@@ -4111,18 +4152,8 @@
   var lastScrollX = 0;
   var pFrame = 0;
   function present() {
-    var currScrollX = window.scrollX;
-    var step = 1;
-    document.body.scrollTo(Math.max(0, pFrame - 10), window.scrollY);
-
-    pFrame += step;
-
-    //console.log([lastScrollX,currScrollX]);
-
-    if (pFrame < 20 || Math.abs(lastScrollX - currScrollX) < step * 2) {
-      lastScrollX = currScrollX;
-      setTimeout(present, 1);
-    }
+    // Start smooth scrolling
+    requestAnimationFrame(smoothScroll);
   }
   function reloadWSeed(s) {
     var u = window.location.href.split("?")[0];
@@ -4130,15 +4161,58 @@
     //window.location.reload(true)
   }
   var btnHoverCol = "rgba(0,0,0,0.1)";
+
+  function toggleFullScreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  }
+
+  document.addEventListener('fullscreenchange', function() {
+    var isFS = !!document.fullscreenElement;
+    document.getElementById('FS_BTN').style.display = isFS ? 'none' : 'table';
+    document.getElementById('SETTING').style.display = isFS ? 'none' : 'block';
+    document.getElementById('SOURCE_BTN').style.display = isFS ? 'none' : 'table';
+    document.getElementById('L').style.display = isFS ? 'none' : 'table';
+    document.body.style.overflow = isFS ? 'hidden' : '';
+    document.documentElement.style.overflow = isFS ? 'hidden' : '';
+  });
 </script>
 
 <body style="margin:0">
   <div
+    id="FS_BTN"
+    style="
+    position:fixed;
+    z-index:1000;
+    left: 3;
+    top: 3;
+    width:32;
+    height:32;
+    color:rgba(0,0,0,0.4);
+    border: 1px solid rgba(0,0,0,0.4);
+    text-align: center;
+    display: table;
+    cursor: pointer;
+    "
+    onmouseover="document.getElementById('FS_BTN').style.backgroundColor=btnHoverCol"
+    onmouseout="document.getElementById('FS_BTN').style.backgroundColor='rgba(0,0,0,0)'"
+    onclick="toggleFullScreen()"
+    title="Full Screen"
+  >
+    <div style="display:table-cell; vertical-align: middle;">
+      <font size="4px">&#x26F6;</font>
+    </div>
+  </div>
+
+  <div
     id="SETTING"
     style="
-    position:fixed; 
-    z-index:1000; 
-    left: 40; 
+    position:fixed;
+    z-index:1000;
+    left: 40;
     top: 3;
     "
   >
@@ -4220,15 +4294,6 @@
               >
             </button>
           </td>
-        </tr>
-
-        <tr>
-          <td>
-            <pre><input id = "AUTO_SCROLL" type="checkbox" 
-            onchange="autoxcroll(parseFloat(document.getElementById('INC_STEP').value))">Auto-scroll</pre>
-          </td>
-
-          <td></td>
         </tr>
 
         <tr>
